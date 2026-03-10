@@ -8,9 +8,13 @@ public class PuzzleManager : MonoBehaviour
     public List<GameObject> connectSolids1;
     public List<GameObject> connectSolids2;
 
+    [Header("¹Ø¿¨µÈ¼¶")]
+    public Level level;
+
     private void Start()
     {
         PlayerManager.playerManager.currentPuzzle = this;
+        PlayerManager.playerManager.GenerateConnection();
     }
 
     private void OnDrawGizmos()

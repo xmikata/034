@@ -17,6 +17,17 @@ public enum Mode
     Mode1,Mode2
 }
 
+public enum Level
+{
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven
+}
+
 public class PlayerManager : MonoBehaviour
 {
     public static PlayerManager playerManager;
@@ -28,22 +39,32 @@ public class PlayerManager : MonoBehaviour
 
     [Header("属性设置")]
     public float rotateSpeed = 1;
+    public float cubeDefalutSize = 1;
+    public float sphereDefalutSize = 1.2f;
+    public float triangleDefalutSize = 1;
     public float disappearSize = 0.5f;
 
     float horizontal;
     float vertical;
+    float scrollWheelInput;
 
-    [Header("预制体")]
+    [Header("型状预制体")]
     public GameObject cubePrefab;
     public GameObject spherePrefab;
     public GameObject trianglePrefab;
     public GameObject connectionPrefab;
+
+    [Header("关卡预制体")]
+    public List<GameObject> puzzlePrefabs;
+
+    public Vector3 puzzlePosition;
 
     public Dictionary<GameObject, GameObject> morphingSolids;//正在变换中的所有体,<老的gameobject,新的型状>
     private List<GameObject> keysToRemove;//用来删字典的临时list
 
     [Header("现在的谜题")]
     public PuzzleManager currentPuzzle;
+    public Level currentLevel;
     public List<GameObject> solidsInGame;//谜题中的所有体
     //[Header("连接")]
     //public List<GameObject> connectSolids1;
@@ -54,7 +75,12 @@ public class PlayerManager : MonoBehaviour
     public Solid[] mode1 = new Solid[2];
     public Solid[] mode2 = new Solid[3];
 
+    [Header("操作锁")]
     public bool operationLock;//操作锁
+
+    [Header("摄像机设置")]
+    public float maximumDistance;
+    Vector3 cameraInitialPosition;
 
     private void Awake()
     {
@@ -76,7 +102,7 @@ public class PlayerManager : MonoBehaviour
 
     private void Start()
     {
-        GenerateConnection();
+        cameraInitialPosition = Camera.main.transform.position;
     }
     private void Update()
     {
@@ -97,12 +123,19 @@ public class PlayerManager : MonoBehaviour
         LockOperation();
         Morph();
         DeleteDictionaryPair();
+        if (currentPuzzle!=null)
+        {
+            currentLevel = currentPuzzle.level;
+        }
+        ClickToReset();
+        HandleCameraDistance();
     }
 
     private void LateUpdate()
     {
         horizontal = 0;
         vertical = 0;
+        scrollWheelInput = 0;
     }
     public void HandleChooseSolid()
     {
@@ -290,6 +323,23 @@ public class PlayerManager : MonoBehaviour
     {
         foreach (KeyValuePair<GameObject, GameObject> pair in morphingSolids)
         {
+            SolidManager solidManager2 = pair.Value.GetComponent<SolidManager>();
+            Vector3 targetScale;
+            switch (solidManager2.solid)
+            {
+                case Solid.Cube:
+                    targetScale = new Vector3(cubeDefalutSize, cubeDefalutSize, cubeDefalutSize);
+                    break;
+                case Solid.Sphere:
+                    targetScale = new Vector3(sphereDefalutSize, sphereDefalutSize, sphereDefalutSize);
+                    break;
+                case Solid.Triangle:
+                    targetScale = new Vector3(triangleDefalutSize, triangleDefalutSize, triangleDefalutSize);
+                    break;
+                default:
+                    targetScale = new Vector3(1, 1, 1);
+                    break;
+            }
             MeshRenderer meshRenderer1 = pair.Key.GetComponent<MeshRenderer>();
             MeshRenderer meshRenderer2 = pair.Value.GetComponent<MeshRenderer>();
             Color currentColor1 = meshRenderer1.materials[0].color;//要变透明的
@@ -297,19 +347,12 @@ public class PlayerManager : MonoBehaviour
             Vector3 currentScale1 = pair.Key.transform.localScale;
             Vector3 currentScale2 = pair.Value.transform.localScale;
 
-            #region 修变形的时候圆有透明bug的
-            if (currentColor1.a<=0.1f)
-            {
-                //meshRenderer1.enabled = false;
-            }
-            #endregion
-
             #region 变形结束
             if ((currentColor1.a >= 0 && currentColor1.a <= 0.01)||
                 (currentColor2.a >= 0.99 && currentColor1.a <= 1))
             {
                 meshRenderer2.materials[0].color = new Color(meshRenderer2.materials[0].color.r, meshRenderer2.materials[0].color.g, meshRenderer2.materials[0].color.b, 1);
-                pair.Value.transform.localScale = new Vector3(1, 1, 1);
+                pair.Value.transform.localScale = targetScale;
                 keysToRemove.Add(pair.Key);
                 return;
             }
@@ -318,7 +361,7 @@ public class PlayerManager : MonoBehaviour
             currentColor1.a = Mathf.Lerp(currentColor1.a, 0, Time.deltaTime *5);
             currentScale1 = Vector3.Lerp(currentScale1, new Vector3(disappearSize, disappearSize, disappearSize), Time.deltaTime * 5);
             currentColor2.a = Mathf.Lerp(currentColor2.a, 1, Time.deltaTime *5);
-            currentScale2 = Vector3.Lerp(currentScale2, new Vector3(1, 1, 1), Time.deltaTime * 5);
+            currentScale2 = Vector3.Lerp(currentScale2, targetScale, Time.deltaTime * 5);
             meshRenderer1.materials[0].color = currentColor1;
             pair.Key.transform.localScale=currentScale1;
             meshRenderer2.materials[0].color = currentColor2;
@@ -330,11 +373,12 @@ public class PlayerManager : MonoBehaviour
     //型状变换
     public void InputHandler()
     {
-        if (Input.GetMouseButton(0))
+        if (Input.GetMouseButton(1))
         {
             horizontal = Input.GetAxis("Mouse X");
             vertical = Input.GetAxis("Mouse Y");
         }
+        scrollWheelInput = Input.GetAxis("Mouse ScrollWheel");
     }
     //鼠标输入
 
@@ -434,6 +478,60 @@ public class PlayerManager : MonoBehaviour
         {
             Debug.LogError("傻逼你没连完");
         }
+    }
+
+    public void ClickToReset()
+    {
+        if (Input.GetMouseButtonDown(2))
+        {
+            morphingSolids.Clear();
+            solidsInGame.Clear();
+            GameObject puzzlePrefab=null;
+            switch (currentPuzzle.level)
+            {
+                case Level.One:
+                    puzzlePrefab=puzzlePrefabs[0];
+                    break;
+                case Level.Two:
+                    puzzlePrefab = puzzlePrefabs[1];
+                    break;
+                case Level.Three:
+                    puzzlePrefab = puzzlePrefabs[2];
+                    break;
+                case Level.Four:
+                    puzzlePrefab = puzzlePrefabs[3];
+                    break;
+                case Level.Five:
+                    puzzlePrefab = puzzlePrefabs[4];
+                    break;
+                case Level.Six:
+                    puzzlePrefab = puzzlePrefabs[5];
+                    break;
+                case Level.Seven:
+                    puzzlePrefab = puzzlePrefabs[6];
+                    break;
+
+            }
+            Destroy(currentPuzzle.gameObject);
+            if (puzzlePrefab != null)
+            {
+                GameObject.Instantiate(puzzlePrefab, puzzlePosition, Quaternion.identity);
+            }
+        }
+    }
+
+    public void HandleCameraDistance()
+    {
+        Vector3 currentPosition = Camera.main.transform.position;
+        Vector3 targetPosition = new Vector3(currentPosition.x-scrollWheelInput*10, currentPosition.y, currentPosition.z);
+        Debug.Log(targetPosition.x);
+        targetPosition.x = Mathf.Clamp(
+            targetPosition.x,
+            cameraInitialPosition.x - maximumDistance,  // 最小值：初始X-10
+            cameraInitialPosition.x + maximumDistance   // 最大值：初始X+10
+        );
+        Debug.Log(targetPosition.x);
+        Camera.main.transform.position = Vector3.Lerp(Camera.main.transform.position, targetPosition, 0.5f);
     }
 
 }
